@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Ubetaxi</title>
+</head>
+<body>
+
+
+<div>
+    <div> 名前：<input type="text" id="uname"  > </div>
+    <div>
+        <textarea id="text" cols="30" rows="10" placeholder="目的地を入力してください"></textarea>
+    </div>
+    <div>集合時間<input type ="datetime-local" id = "date" value="2024-07-08T00:00" ></div> 
+    <div>空き定員<input type="number" id = "capacity" value="3"></div>
+        <button id="send">投稿</button>   
+    
+    
+    <div id="output" style="overflow: auto;height: 800px;"></div>
+</div>
+
+
+
+<!-- JQuery -->
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+<!-- JQuery -->
+
+
+<!--** 以下Firebase **-->
+<script type="module">
+    // Import the functions you need from the SDKs you need
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.0.2/firebase-app.js";
+    import { getFirestore, collection, doc, Timestamp, addDoc, deleteDoc, onSnapshot, query, orderBy,getDoc,updateDoc } 
+    from "https://www.gstatic.com/firebasejs/9.0.2/firebase-firestore.js";      
+  
+    // Your web app's Firebase configuration
+    const firebaseConfig = {
+    apiKey: "AIzaSyBvrQWIEovzTeXS-fV66-KHJvPlUeb6SR8",
+    authDomain: "ubetaxi-6761c.firebaseapp.com",
+    projectId: "ubetaxi-6761c",
+    storageBucket: "ubetaxi-6761c.appspot.com",
+    messagingSenderId: "30789926245",
+    appId: "1:30789926245:web:501bc1019e495bc93ef58c",
+    measurementId: "G-7590E0MW5H"
+  };
+    // Initialize Firebase
+const app = initializeApp(firebaseConfig);
+
+// Firestoreを使う
+const db = getFirestore(app);
+const ref = collection(db, "chat");
+
+// 送信ボタン機能(データ追加)
+$("#send").on("click", function() {
+    const ob = {
+        uname: $("#uname").val(),
+        text: $("#text").val(),
+        capacity: parseInt($("#capacity").val(), 10),
+        date: $("#date").val(),
+        reservation_list: [],
+        comments: []
+    };
+    addDoc(ref, ob) // 自動採番で登録
+        .then(() => {
+            alert("投稿しました");
+        })
+        .catch(error => {
+            console.error("ドキュメントを追加してください", error);
+        });
+});
+
+// 予約ボタン機能
+$(document).on('click', '.appoint-btn', async function() {
+    let $parent = $(this).closest('p');
+    let userName = $parent.find('.user-name').val();
+    
+    if (!userName) {
+        alert("名前を入力してください");
+        return;
+    }
+
+
+    //  document ID
+    let docId = $parent.attr('data-id');
+
+    // Firestoreからデータ取得
+    let docRef = doc(db, "chat", docId);
+    let docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+        let data = docSnap.data();
+        let currentCapacity = data.capacity;
+
+        if (currentCapacity > 0) {
+            let newCapacity = currentCapacity - 1;
+            let newReservationList = data.reservation_list || [];
+            newReservationList.push(userName);
+
+            // Firestoreのデータ更新
+            await updateDoc(docRef, {
+                capacity: newCapacity,
+                reservation_list: newReservationList
+            });
+
+            // 表示を更新
+            $parent.find('.capacity').text(newCapacity);
+            $parent.find('.reservation_list').append('<br>予約者: ' + userName);
+            $parent.find('.user-name').val('');
+        } else {
+            alert("満員です");
+        }
+    } else {
+        console.error("エラー");
+    }
+});
+
+
+// コメントボタン機能
+$(document).on('click', '.comment-btn', async function() {
+    let $parent = $(this).closest('p');
+    let commentInput = $parent.find('.comment-input');
+    let commentText = commentInput.val();
+
+
+    if (!commentText) {
+        alert("コメントを入力してください");
+        return;
+    }
+
+    // document ID
+    let docId = $parent.attr('data-id');
+
+    // Firestoreからデータ取得
+    let docRef = doc(db, "chat", docId);
+    let docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+        let data = docSnap.data();
+        let newComments = data.comments || [];
+        newComments.push(commentText);
+
+        // Firestoreのデータ更新
+        await updateDoc(docRef, {
+            comments: newComments
+        });
+
+        // 表示を更新
+        $parent.find('.comments').append('<div class="comment">' + commentText + '</div>');
+        commentInput.val('');
+    } else {
+        console.error("エラー");
+    }
+});
+
+
+
+// 掲示板onSnapshotでリアルタイムにデータを取得
+const q = query(ref, orderBy("date","desc"));
+onSnapshot(q, function(snapshot) {
+    $("#output").empty(); 
+    snapshot.docChanges().forEach((change) => {
+        if (change.type === "added" || change.type === "modified") {
+            let data = change.doc.data();
+            console.log("Document data:", data); // ログチェック
+            let reservationListHTML = (data.reservation_list || []).map(name => '予約者: ' + name).join('<br>');
+            let commentsHTML = (data.comments || []).map(comment => '<div class="comment">' + comment + '</div>').join('');
+
+            let h = '<p data-id="' + change.doc.id + '">';
+            h += '投稿者 : ' + (data.uname || '') + '<br>';
+            h += '目的地 : ' + (data.text || '') + '<br>';
+            h += '空き定員 : ' + '<span class="capacity">' + (data.capacity || '') + '</span><br>';
+            h += '集合日時 : ' + (data.date || '') + '<br>';
+            h += '名前 : <input type="text" class="user-name" placeholder="名前を入力してください">';
+            h += '<button class="appoint-btn">予約</button>';
+            h += '<div class="reservation_list">' + reservationListHTML + '</div>';
+            h += '<div class="comments">' + commentsHTML + '</div>';
+            h += 'コメント : <input type="text" class="comment-input" placeholder="コメントを入力してください">';
+            h += '<button class="comment-btn">コメントを投稿</button>';
+            h += '</p>';
+            $("#output").prepend(h);
+        }
+    });
+});
+
+  </script>
+</body>
+</html>
